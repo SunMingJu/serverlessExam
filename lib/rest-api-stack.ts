@@ -40,7 +40,7 @@ export class RestAPIStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       tableName: "MovieAwards",
     });
- 
+
     const movieCrewTable = new dynamodb.Table(this, "MovieCrewTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
@@ -115,17 +115,18 @@ export class RestAPIStack extends cdk.Stack {
       }
     );
 
-    const getMovieCrewFn = new lambdanode.NodejsFunction(
+    //added function here:
+    const getMovieCrewByRoleFn = new lambdanode.NodejsFunction(
       this,
-      "getMovieCrewFn",
+      "GetMovieCrewByRoleFn",
       {
         architecture: lambda.Architecture.ARM_64,
         runtime: lambda.Runtime.NODEJS_16_X,
-        entry: `${__dirname}/../lambdas/getMovieCrew.ts`,
+        entry: `${__dirname}/../lambdas/getMovieCrewByRole.ts`,
         timeout: cdk.Duration.seconds(10),
         memorySize: 128,
         environment: {
-          TABLE_NAME: moviesTable.tableName,
+          TABLE_NAME: movieCrewTable.tableName,
           REGION: "eu-west-1",
         },
       }
@@ -166,18 +167,21 @@ export class RestAPIStack extends cdk.Stack {
       },
     });
 
+    //dev/movies
     const moviesEndpoint = api.root.addResource("movies");
     moviesEndpoint.addMethod(
       "GET",
       new apig.LambdaIntegration(getAllMoviesFn, { proxy: true })
     );
 
+    // dev/cast?movieId={1234}
     const movieCastEndpoint = moviesEndpoint.addResource("cast");
     movieCastEndpoint.addMethod(
       "GET",
       new apig.LambdaIntegration(getMovieCastMembersFn, { proxy: true })
     );
 
+    //dev/movies/{movieId}
     const movieEndpoint = moviesEndpoint.addResource("{movieId}");
     movieEndpoint.addMethod(
       "GET",
@@ -189,20 +193,25 @@ export class RestAPIStack extends cdk.Stack {
       new apig.LambdaIntegration(deleteMovieByIdFn, { proxy: true })
     );
 
-    const moviesCrewEndpoint = api.root.addResource("crew");
-    moviesCrewEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getMovieCrewFn, { proxy: true })
-    );
-    
+
+    //dev/crew/{role}/movies/{movieId}
+    //dev/crew/{role}/movies/{movieId}?name=subString
+    const crewResource = api.root.addResource("crew");
+    const roleResource = crewResource.addResource("{role}");
+    const moviesSubResource = roleResource.addResource("movies");
+    const crewMovieIdResource = moviesSubResource.addResource("{movieId}");
+
+    crewMovieIdResource.addMethod(
+      "GET", 
+      new apig.LambdaIntegration(getMovieCrewByRoleFn)
+      );
+
     // Permissions;
     moviesTable.grantReadData(getMovieByIdFn);
     moviesTable.grantReadData(getAllMoviesFn);
-     moviesTable.grantReadWriteData(deleteMovieByIdFn)
+    moviesTable.grantReadWriteData(deleteMovieByIdFn)
     movieCastsTable.grantReadData(getMovieCastMembersFn);
-    movieCastsTable.grantReadData(getMovieByIdFn);
-    movieCrewTable.grantReadData(getMovieCrewFn);
-  
-
+    movieCastsTable.grantReadData(getMovieByIdFn)
+    movieCrewTable.grantReadData(getMovieCrewByRoleFn);
   }
 }
